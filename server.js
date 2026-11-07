@@ -64,47 +64,32 @@ const complete = (u) => !!(u.photos && u.photos.length && u.name && u.dob && u.g
 function profileOut(u, me) {
   const tn = tonight(), mine = new Set((me && me.nights) || []), shared = (u.nights || []).filter((d) => mine.has(d));
   const d = me ? km(me.loc, u.loc) : null;
-  return { id: u.id, name: u.name, age: ageOf(u.dob), job: u.job || "", shift: u.shift || "", nights: u.nights || [], onTonight: (u.nights || []).includes(tn), shared, bio: u.bio || "", prompts: u.prompts || {}, photos: u.photos || [], town: u.town || "", km: d == null ? null : Math.max(1, Math.round(d)), online: !!u.demoOnline || onlineNow(u.id), verified: !!u.verified, demo: !!u.demo };
+  return { id: u.id, name: u.name, age: ageOf(u.dob), job: u.job || "", shift: u.shift || "", nights: u.nights || [], onTonight: (u.nights || []).includes(tn), shared, bio: u.bio || "", prompts: u.prompts || {}, photos: u.photos || [], town: u.town || "", km: d == null ? null : Math.max(1, Math.round(d)), online: u.demo ? demoOnline(u) : onlineNow(u.id), verified: !!u.verified, demo: !!u.demo };
 }
 function myProfile(u) { return { ...profileOut(u, null), username: u.username, dob: u.dob, gender: u.gender, seeking: u.seeking, ageMin: u.ageMin || 18, ageMax: u.ageMax || 60, maxKm: u.maxKm || 40, hasLoc: !!(u.loc && u.loc.lat != null), complete: complete(u) }; }
 const wants = (a, b) => a.seeking === "everyone" || (a.seeking === "men" && b.gender === "man") || (a.seeking === "women" && b.gender === "woman");
 const blockedEither = (a, b) => (a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id);
 
 /* ---------- demo profiles (testing only, always labelled) ---------- */
-const DEMO = [
-  ["Sophie", "woman", "men", 29, "NHS / nursing", "Permanent nights", "A&E nurse at the LGI. Running on tea and toast. Looking for someone who gets why I'm eating tea at 4am.", "My 3am snack", "Toast. Always toast."],
-  ["Chloe", "woman", "men", 33, "Care work", "Rotating shifts", "Carer by night, dog mum by day. Love a long walk after a shift.", "After shift, you'll find me", "Walking the dog round Roundhay Park"],
-  ["Jess", "woman", "everyone", 27, "Warehouse & logistics", "Permanent nights", "Picker at a big warehouse. 20k steps a night, so don't ask me to go hiking.", "Song that gets me through a night", "Mr Brightside, every single time"],
-  ["Amy", "woman", "men", 35, "Police", "Rotating shifts", "Response officer. Great at small talk, terrible at sleeping in the day.", "Best thing about nights", "Empty roads and sunrises"],
-  ["Hannah", "woman", "men", 31, "Fire & ambulance", "Rotating shifts", "Paramedic. If you can make me laugh after a 12-hour shift you're winning.", "Perfect day off", "Breakfast at teatime then a film"],
-  ["Laura", "woman", "men", 38, "Retail & supermarkets", "Permanent nights", "Night manager at a 24-hour supermarket. I know where everything is.", "My 3am snack", "Meal deal, obviously"],
-  ["Megan", "woman", "everyone", 26, "Hospitality & bars", "Lates", "Bartender in town. Finish at 3, wide awake till 6.", "After shift, you'll find me", "Chippy then bed"],
-  ["Kirsty", "woman", "men", 41, "Call centre", "Mix of days and nights", "Out-of-hours helpline. Good listener, better cook.", "Perfect day off", "Sunday dinner at 4pm"],
-  ["Gemma", "woman", "men", 34, "Cleaning", "Permanent nights", "Office cleaner, early riser in reverse. Love a quiz.", "Song that gets me through a night", "Anything by Oasis"],
-  ["Becky", "woman", "men", 30, "Security", "Permanent nights", "Site security. I've watched every true crime doc going.", "Best thing about nights", "Nobody asks me to do anything"],
-  ["Danny", "man", "women", 32, "Driving", "Permanent nights", "HGV driver. Motorway services connoisseur.", "My 3am snack", "Greggs sausage roll"],
-  ["Tom", "man", "women", 36, "Security", "Rotating shifts", "Doorman at weekends, gym in the day.", "After shift, you'll find me", "Gym, then a fry-up"],
-  ["Ryan", "man", "everyone", 29, "Factory & production", "Permanent nights", "Production line at a bakery. I always smell of bread.", "Best thing about nights", "Fresh bread at 5am"],
-  ["Craig", "man", "women", 40, "Warehouse & logistics", "Mix of days and nights", "Forklift driver and part-time DJ.", "Song that gets me through a night", "Daft Punk, loud"],
-  ["Alex", "nonbinary", "everyone", 28, "Hospitality & bars", "Lates", "Chef in a late-night kitchen. I'll cook you something nice.", "My 3am snack", "Leftover curry"],
-  ["Jordan", "nonbinary", "everyone", 31, "Call centre", "Rotating shifts", "Night support at a bank. Gamer, cat person.", "Perfect day off", "Gaming and a takeaway"],
-];
 const DEMO_REPLIES = [
   "Haha hiya! How's your night going?", "Ah that's class 😂 what shift are you on this week?", "I'm on tonight too, absolutely shattered already",
   "Same! Nights are a different world aren't they", "Ooh go on then, tell me more", "Coffee or energy drinks? Be honest 😅",
   "I'm on my break now, perfect timing", "Haha you're funny. Where abouts are you based?", "Fancy a brew after shift one morning? ☕",
   "That's the dream, a day off where I actually sleep", "Ha! Love that", "Sorry slow reply, been mad busy tonight 🙈",
 ];
+const DEMO_ON = () => !!SITE_PASSWORD; // demo profiles only ever show while the site is private
+const slot = () => Math.floor(now() / (15 * 60e3));
+const demoOnline = (u) => { let h = 0; for (const ch of u.id + slot()) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 100 < 62; };
 async function seedDemo() {
-  if (store.all("users").some((u) => u.demo)) return 0;
-  const dir = path.join(__dirname, "public", "demo"); let n = 0;
-  for (let i = 0; i < DEMO.length; i++) {
-    const [name, gender, seeking, age, job, shift, bio, q, a] = DEMO[i];
-    const id = rid(8), year = new Date().getFullYear() - age, dob = `${year}-0${1 + (i % 9)}-1${i % 9}`;
-    const photos = []; try { const buf = fs.readFileSync(path.join(dir, `${String(i + 1).padStart(2, "0")}.jpg`)); const img = rid(14); await store.putImg(img, buf); photos.push(img); } catch (e) { console.error("[demo] photo", i + 1, e.message); continue; }
-    const nights = [0, 1, 2, 3, 4, 5, 6].filter(() => Math.random() < 0.55);
-    store.put("users", id, { id, demo: true, demoOnline: Math.random() < 0.4, username: `demo_${name.toLowerCase()}`, pw: "", name, dob, gender, seeking, photos, nights: nights.length ? nights : [5, 6], prompts: { [q]: a }, bio, job, shift, town: "Leeds", keys: [], blocked: [], ageMin: 18, ageMax: 99, maxKm: 500,
-      loc: { lat: +(53.80 + (Math.random() - 0.5) * 0.16).toFixed(2), lng: +(-1.55 + (Math.random() - 0.5) * 0.22).toFixed(2) }, created: now() });
+  let people; try { people = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "demo", "people.json"), "utf8")); } catch (e) { throw new Error("Demo list missing."); }
+  for (const u of store.all("users")) if (u.demo && !u.demoFile) deleteUser(u.id); // clear the old 16
+  const have = new Set(store.all("users").filter((u) => u.demo).map((u) => u.demoFile)); let n = 0;
+  for (const [i, d] of people.entries()) {
+    if (have.has(d.file)) continue;
+    let buf; try { buf = fs.readFileSync(path.join(__dirname, "public", "demo", d.file)); } catch (e) { continue; }
+    const img = rid(14); try { await store.putImg(img, buf); } catch (e) { console.error("[demo] photo", d.file, e.message); continue; }
+    const id = rid(8), dob = `${new Date().getFullYear() - d.age - 1}-${String(1 + (i % 12)).padStart(2, "0")}-${String(1 + (i % 27)).padStart(2, "0")}`;
+    store.put("users", id, { id, demo: true, demoFile: d.file, username: `demo_${d.file.slice(0, 3)}`, pw: "", name: d.name, dob, gender: d.gender, seeking: d.seeking, photos: [img], nights: d.nights, prompts: d.prompts, bio: d.bio, job: d.job, shift: d.shift, town: "Leeds", keys: [], blocked: [], ageMin: 18, ageMax: 99, maxKm: 500, loc: { lat: d.lat, lng: d.lng }, created: now() - Math.floor(Math.random() * 30) * 864e5 });
     n++;
   }
   return n;
@@ -138,7 +123,7 @@ async function api(req, res, url) {
 
   if (p === "/api/status") return send(res, 200, { ok: true, version: VERSION, store: store.status(), admin: ADMIN_KEY.length >= 8, private: !!SITE_PASSWORD });
   if (p === "/api/boot") {
-    const online = [...ONLINE.entries()].filter(([, t]) => now() - t < 15 * 60e3).length;
+    const online = [...ONLINE.entries()].filter(([, t]) => now() - t < 15 * 60e3).length + (DEMO_ON() ? store.all("users").filter((u) => u.demo && demoOnline(u)).length : 0);
     return send(res, 200, { me: me ? myProfile(me) : null, online, night: isNight(), tonight: tonight(), jobs: JOBS, shifts: SHIFTS, prompts: PROMPTS, version: VERSION });
   }
 
@@ -218,12 +203,12 @@ async function api(req, res, url) {
     if (!complete(me)) return send(res, 200, { cards: [], incomplete: true });
     const onlyTonight = url.searchParams.get("tonight") === "1", tn = tonight();
     const seen = new Set(store.all("swipes").filter((s) => s.from === me.id).map((s) => s.to));
-    const cand = store.all("users").filter((u) => u.id !== me.id && !u.banned && complete(u) && !seen.has(u.id) && !blockedEither(me, u) && wants(me, u) && wants(u, me))
+    const cand = store.all("users").filter((u) => u.id !== me.id && !u.banned && (!u.demo || DEMO_ON()) && complete(u) && !seen.has(u.id) && !blockedEither(me, u) && wants(me, u) && wants(u, me))
       .map((u) => ({ u, age: ageOf(u.dob), d: km(me.loc, u.loc) }))
       .filter((x) => x.age >= (me.ageMin || 18) && x.age <= (me.ageMax || 99) && (x.d == null || x.d <= (me.maxKm || 40)))
       .filter((x) => !onlyTonight || (x.u.nights || []).includes(tn))
       .map((x) => { const shared = (x.u.nights || []).filter((d) => (me.nights || []).includes(d)).length; const score = ((x.u.nights || []).includes(tn) ? 40 : 0) + shared * 8 + (onlineNow(x.u.id) ? 25 : 0) + (x.u.shift && x.u.shift === me.shift ? 6 : 0) - (x.d == null ? 15 : Math.min(30, x.d * 0.4)) + Math.random() * 6; return { ...x, score }; })
-      .sort((a, b) => b.score - a.score).slice(0, 25);
+      .sort((a, b) => b.score - a.score).slice(0, 40);
     return send(res, 200, { cards: cand.map((x) => profileOut(x.u, me)) });
   }
   if (p === "/api/swipe" && M === "POST") {
