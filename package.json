@@ -1,0 +1,9 @@
+{
+  "name": "nightowl",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Night Owl: dating for people who work while the world sleeps.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": "22.x" }
+}
