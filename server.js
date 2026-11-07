@@ -64,11 +64,59 @@ const complete = (u) => !!(u.photos && u.photos.length && u.name && u.dob && u.g
 function profileOut(u, me) {
   const tn = tonight(), mine = new Set((me && me.nights) || []), shared = (u.nights || []).filter((d) => mine.has(d));
   const d = me ? km(me.loc, u.loc) : null;
-  return { id: u.id, name: u.name, age: ageOf(u.dob), job: u.job || "", shift: u.shift || "", nights: u.nights || [], onTonight: (u.nights || []).includes(tn), shared, bio: u.bio || "", prompts: u.prompts || {}, photos: u.photos || [], town: u.town || "", km: d == null ? null : Math.max(1, Math.round(d)), online: onlineNow(u.id), verified: !!u.verified };
+  return { id: u.id, name: u.name, age: ageOf(u.dob), job: u.job || "", shift: u.shift || "", nights: u.nights || [], onTonight: (u.nights || []).includes(tn), shared, bio: u.bio || "", prompts: u.prompts || {}, photos: u.photos || [], town: u.town || "", km: d == null ? null : Math.max(1, Math.round(d)), online: !!u.demoOnline || onlineNow(u.id), verified: !!u.verified, demo: !!u.demo };
 }
 function myProfile(u) { return { ...profileOut(u, null), username: u.username, dob: u.dob, gender: u.gender, seeking: u.seeking, ageMin: u.ageMin || 18, ageMax: u.ageMax || 60, maxKm: u.maxKm || 40, hasLoc: !!(u.loc && u.loc.lat != null), complete: complete(u) }; }
 const wants = (a, b) => a.seeking === "everyone" || (a.seeking === "men" && b.gender === "man") || (a.seeking === "women" && b.gender === "woman");
 const blockedEither = (a, b) => (a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id);
+
+/* ---------- demo profiles (testing only, always labelled) ---------- */
+const DEMO = [
+  ["Sophie", "woman", "men", 29, "NHS / nursing", "Permanent nights", "A&E nurse at the LGI. Running on tea and toast. Looking for someone who gets why I'm eating tea at 4am.", "My 3am snack", "Toast. Always toast."],
+  ["Chloe", "woman", "men", 33, "Care work", "Rotating shifts", "Carer by night, dog mum by day. Love a long walk after a shift.", "After shift, you'll find me", "Walking the dog round Roundhay Park"],
+  ["Jess", "woman", "everyone", 27, "Warehouse & logistics", "Permanent nights", "Picker at a big warehouse. 20k steps a night, so don't ask me to go hiking.", "Song that gets me through a night", "Mr Brightside, every single time"],
+  ["Amy", "woman", "men", 35, "Police", "Rotating shifts", "Response officer. Great at small talk, terrible at sleeping in the day.", "Best thing about nights", "Empty roads and sunrises"],
+  ["Hannah", "woman", "men", 31, "Fire & ambulance", "Rotating shifts", "Paramedic. If you can make me laugh after a 12-hour shift you're winning.", "Perfect day off", "Breakfast at teatime then a film"],
+  ["Laura", "woman", "men", 38, "Retail & supermarkets", "Permanent nights", "Night manager at a 24-hour supermarket. I know where everything is.", "My 3am snack", "Meal deal, obviously"],
+  ["Megan", "woman", "everyone", 26, "Hospitality & bars", "Lates", "Bartender in town. Finish at 3, wide awake till 6.", "After shift, you'll find me", "Chippy then bed"],
+  ["Kirsty", "woman", "men", 41, "Call centre", "Mix of days and nights", "Out-of-hours helpline. Good listener, better cook.", "Perfect day off", "Sunday dinner at 4pm"],
+  ["Gemma", "woman", "men", 34, "Cleaning", "Permanent nights", "Office cleaner, early riser in reverse. Love a quiz.", "Song that gets me through a night", "Anything by Oasis"],
+  ["Becky", "woman", "men", 30, "Security", "Permanent nights", "Site security. I've watched every true crime doc going.", "Best thing about nights", "Nobody asks me to do anything"],
+  ["Danny", "man", "women", 32, "Driving", "Permanent nights", "HGV driver. Motorway services connoisseur.", "My 3am snack", "Greggs sausage roll"],
+  ["Tom", "man", "women", 36, "Security", "Rotating shifts", "Doorman at weekends, gym in the day.", "After shift, you'll find me", "Gym, then a fry-up"],
+  ["Ryan", "man", "everyone", 29, "Factory & production", "Permanent nights", "Production line at a bakery. I always smell of bread.", "Best thing about nights", "Fresh bread at 5am"],
+  ["Craig", "man", "women", 40, "Warehouse & logistics", "Mix of days and nights", "Forklift driver and part-time DJ.", "Song that gets me through a night", "Daft Punk, loud"],
+  ["Alex", "nonbinary", "everyone", 28, "Hospitality & bars", "Lates", "Chef in a late-night kitchen. I'll cook you something nice.", "My 3am snack", "Leftover curry"],
+  ["Jordan", "nonbinary", "everyone", 31, "Call centre", "Rotating shifts", "Night support at a bank. Gamer, cat person.", "Perfect day off", "Gaming and a takeaway"],
+];
+const DEMO_REPLIES = [
+  "Haha hiya! How's your night going?", "Ah that's class 😂 what shift are you on this week?", "I'm on tonight too, absolutely shattered already",
+  "Same! Nights are a different world aren't they", "Ooh go on then, tell me more", "Coffee or energy drinks? Be honest 😅",
+  "I'm on my break now, perfect timing", "Haha you're funny. Where abouts are you based?", "Fancy a brew after shift one morning? ☕",
+  "That's the dream, a day off where I actually sleep", "Ha! Love that", "Sorry slow reply, been mad busy tonight 🙈",
+];
+async function seedDemo() {
+  if (store.all("users").some((u) => u.demo)) return 0;
+  const dir = path.join(__dirname, "public", "demo"); let n = 0;
+  for (let i = 0; i < DEMO.length; i++) {
+    const [name, gender, seeking, age, job, shift, bio, q, a] = DEMO[i];
+    const id = rid(8), year = new Date().getFullYear() - age, dob = `${year}-0${1 + (i % 9)}-1${i % 9}`;
+    const photos = []; try { const buf = fs.readFileSync(path.join(dir, `${String(i + 1).padStart(2, "0")}.jpg`)); const img = rid(14); await store.putImg(img, buf); photos.push(img); } catch (e) { console.error("[demo] photo", i + 1, e.message); continue; }
+    const nights = [0, 1, 2, 3, 4, 5, 6].filter(() => Math.random() < 0.55);
+    store.put("users", id, { id, demo: true, demoOnline: Math.random() < 0.4, username: `demo_${name.toLowerCase()}`, pw: "", name, dob, gender, seeking, photos, nights: nights.length ? nights : [5, 6], prompts: { [q]: a }, bio, job, shift, town: "Leeds", keys: [], blocked: [], ageMin: 18, ageMax: 99, maxKm: 500,
+      loc: { lat: +(53.80 + (Math.random() - 0.5) * 0.16).toFixed(2), lng: +(-1.55 + (Math.random() - 0.5) * 0.22).toFixed(2) }, created: now() });
+    n++;
+  }
+  return n;
+}
+function demoReply(mm, demoId) {
+  setTimeout(() => {
+    const cur = store.get("matches", mm.id); if (!cur || cur.ended) return;
+    const said = new Set(cur.msgs.filter((x) => x.f === demoId).map((x) => x.t));
+    const pool = DEMO_REPLIES.filter((t) => !said.has(t)); const t = (pool.length ? pool : DEMO_REPLIES)[Math.floor(Math.random() * (pool.length || DEMO_REPLIES.length))];
+    cur.msgs.push({ f: demoId, t, at: now() }); store.put("matches", cur.id, cur);
+  }, 3000 + Math.random() * 5000);
+}
 
 /* ---------- matches ---------- */
 const mid = (a, b) => [a, b].sort().join("|");
@@ -183,6 +231,7 @@ async function api(req, res, url) {
     const other = store.get("users", String(body.id || "")); if (!other || other.id === me.id) return send(res, 404, { error: "Not found." });
     const like = !!body.like; store.put("swipes", `${me.id}:${other.id}`, { from: me.id, to: other.id, like, at: now() });
     if (like) {
+      if (other.demo && !store.get("swipes", `${other.id}:${me.id}`) && Math.random() < 0.65) store.put("swipes", `${other.id}:${me.id}`, { from: other.id, to: me.id, like: true, at: now() });
       const back = store.get("swipes", `${other.id}:${me.id}`);
       if (back && back.like && !blockedEither(me, other)) {
         const id = mid(me.id, other.id); let mm = store.get("matches", id);
@@ -208,7 +257,9 @@ async function api(req, res, url) {
     const mm = store.get("matches", String(body.mid || "")); if (!mm || mm.ended || (mm.a !== me.id && mm.b !== me.id)) return send(res, 404, { error: "This chat has ended." });
     const t = clean(body.text, 1000); if (!t) return send(res, 400, { error: "Say something first." });
     mm.msgs.push({ f: me.id, t, at: now() }); if (mm.msgs.length > 500) mm.msgs = mm.msgs.slice(-500); mm.seen = mm.seen || {}; mm.seen[me.id] = now();
-    store.put("matches", mm.id, mm); return send(res, 200, { ok: true });
+    store.put("matches", mm.id, mm);
+    const oid = mm.a === me.id ? mm.b : mm.a, ou = store.get("users", oid); if (ou && ou.demo) demoReply(mm, oid);
+    return send(res, 200, { ok: true });
   }
   if (p === "/api/unmatch" && M === "POST") { if (!need()) return; const mm = store.get("matches", String(body.mid || "")); if (mm && (mm.a === me.id || mm.b === me.id)) { mm.ended = now(); store.put("matches", mm.id, mm); } return send(res, 200, { ok: true }); }
   if (p === "/api/block" && M === "POST") {
@@ -235,7 +286,7 @@ async function api(req, res, url) {
       const U = store.all("users");
       const reps = store.all("reports").filter((r) => r.status === "open").sort((a, b) => (b.last || b.at) - (a.last || a.at)).map((r) => { const u = store.get("users", r.uid); return { ...r, count: r.by.length, user: u ? { id: u.id, username: u.username, name: u.name, age: ageOf(u.dob), photos: u.photos || [], bio: u.bio || "", banned: !!u.banned } : null }; });
       const q = (store.get("meta", "photoq") || { list: [] }).list.filter((x) => { const u = store.get("users", x.uid); return u && (u.photos || []).includes(x.img); }).slice(0, 60).map((x) => ({ ...x, username: (store.get("users", x.uid) || {}).username }));
-      return send(res, 200, { users: U.length, complete: U.filter(complete).length, banned: U.filter((u) => u.banned).length, matches: store.all("matches").filter((x) => !x.ended).length, swipes: store.all("swipes").length, reports: reps, photos: q, store: store.status() });
+      return send(res, 200, { users: U.length, complete: U.filter(complete).length, banned: U.filter((u) => u.banned).length, matches: store.all("matches").filter((x) => !x.ended).length, swipes: store.all("swipes").length, demo: U.filter((u) => u.demo).length, reports: reps, photos: q, store: store.status() });
     }
     if (p === "/api/admin/act" && M === "POST") {
       const u = store.get("users", String(body.uid || "")); if (!u) return send(res, 404, { error: "No user." });
@@ -247,6 +298,11 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     if (p === "/api/admin/resetpw" && M === "POST") { const u = byName(body.username); if (!u) return send(res, 404, { error: "No user with that username." }); const temp = rid(5).replace(/[^A-Za-z0-9]/g, "x") + "-" + Math.floor(1000 + Math.random() * 9000); u.pw = pwHash(temp); u.keys = []; store.put("users", u.id, u); return send(res, 200, { username: u.username, temp }); }
+    if (p === "/api/admin/demo" && M === "POST") {
+      if (body.action === "add") return send(res, 200, { added: await seedDemo() });
+      if (body.action === "remove") { const D = store.all("users").filter((u) => u.demo); for (const u of D) deleteUser(u.id); return send(res, 200, { removed: D.length }); }
+      return send(res, 400, { error: "Unknown action." });
+    }
     if (p === "/api/admin/wipe" && M === "POST") {
       if (body.confirm !== "DELETE") return send(res, 400, { error: "Type DELETE to confirm." });
       for (const u of store.all("users")) for (const img of u.photos || []) store.delImg(img);
